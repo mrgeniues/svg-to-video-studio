@@ -5,6 +5,7 @@
 export type AnimationStyle =
   | 'draw-on'
   | 'pulse'
+  | 'progress'
   | 'fade-in'
   | 'zoom-in'
   | 'rotate-in'
@@ -231,6 +232,15 @@ export function measureSvgGeometries(svgString: string): {
     el.setAttribute('data-geom-id', `anim-geom-${index}`);
   });
 
+  // Record original width of #progress-fill if present
+  const progressFillEl = root.querySelector('#progress-fill');
+  if (progressFillEl) {
+    const rawW = progressFillEl.getAttribute('width');
+    if (rawW) {
+      progressFillEl.setAttribute('data-original-width', rawW);
+    }
+  }
+
   // Clean sandbox
   sandbox.innerHTML = '';
 
@@ -373,6 +383,40 @@ export function renderAnimatedSvgString(
       const count = typeof pulseCount === 'number' && pulseCount > 0 ? pulseCount : 4;
       const opacity = 0.55 + 0.45 * Math.cos(2 * Math.PI * count * progress);
       wrapChildrenInGroup(doc, root, '', `opacity: ${opacity};`, vbW, vbH);
+      break;
+    }
+
+    case 'progress': {
+      // Deterministic linear progress: p(t) = t / duration (0.0 to 1.0)
+      // ID CONVENTION:
+      // If SVG contains id="progress-fill", set width to originalWidth * p (grow left to right, keep x anchored)
+      // If SVG contains id="progress-text", set textContent to Math.round(p * 100) + "%"
+      // Background rect is never touched (protected by isBackgroundElement)
+      const fillEl = doc.getElementById('progress-fill') || root.querySelector('#progress-fill');
+      if (fillEl && !isBackgroundElement(fillEl, vbW, vbH)) {
+        let originalWidth = 0;
+        const wAttr = fillEl.getAttribute('data-original-width') || fillEl.getAttribute('width');
+        if (wAttr) {
+          originalWidth = parseFloat(wAttr) || 0;
+        } else if ((fillEl as HTMLElement).style?.width) {
+          originalWidth = parseFloat((fillEl as HTMLElement).style.width) || 0;
+        }
+
+        if (!fillEl.hasAttribute('data-original-width') && originalWidth > 0) {
+          fillEl.setAttribute('data-original-width', String(originalWidth));
+        }
+
+        const currentW = Math.max(0, originalWidth * progress);
+        fillEl.setAttribute('width', String(currentW));
+        if ((fillEl as HTMLElement).style?.width) {
+          (fillEl as HTMLElement).style.width = `${currentW}px`;
+        }
+      }
+
+      const textEl = doc.getElementById('progress-text') || root.querySelector('#progress-text');
+      if (textEl) {
+        textEl.textContent = `${Math.round(progress * 100)}%`;
+      }
       break;
     }
 

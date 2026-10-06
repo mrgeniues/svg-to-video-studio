@@ -930,6 +930,7 @@ export default function App() {
                   >
                     <option value="draw-on">Draw-on (strokes draw themselves)</option>
                     <option value="pulse">Pulse</option>
+                    <option value="progress">Progress</option>
                     <option value="fade-in">Fade in</option>
                     <option value="zoom-in">Zoom in</option>
                     <option value="rotate-in">Rotate in</option>
@@ -989,6 +990,7 @@ export default function App() {
                 <p className="text-[11px] text-neutral-500 mt-1">
                   {animationStyle === 'draw-on' && 'Animates strokeDashoffset on all vector paths and lines.'}
                   {animationStyle === 'pulse' && `Continuous opacity pulse (${pulseCount} pulse${pulseCount > 1 ? 's' : ''}), starts fully visible (opacity 1.0) on frame 0.`}
+                  {animationStyle === 'progress' && 'Fills #progress-fill width 0→100% and live-updates #progress-text counter.'}
                   {animationStyle === 'fade-in' && 'Smooth cubic opacity transition from 0 to 100%.'}
                   {animationStyle === 'zoom-in' && 'Scales from 20% to 100% centered with cubic ease.'}
                   {animationStyle === 'rotate-in' && 'Rotates 180° into place while expanding.'}
