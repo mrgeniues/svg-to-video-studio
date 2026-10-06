@@ -23,7 +23,9 @@ import {
   Trash2,
   Maximize2,
   Film,
-  XCircle
+  XCircle,
+  HelpCircle,
+  X
 } from 'lucide-react';
 import { SAMPLE_SVGS, SvgSample } from './constants/samples';
 import {
@@ -78,6 +80,9 @@ export default function App() {
 
   // Active Tab for Preview Area: 'live' or 'rendered'
   const [activeViewTab, setActiveViewTab] = useState<'live' | 'rendered'>('live');
+
+  // Help Modal State
+  const [isHelpOpen, setIsHelpOpen] = useState<boolean>(false);
 
   // DOM & Animation Refs
   const editorRef = useRef<HTMLTextAreaElement>(null);
@@ -388,6 +393,17 @@ export default function App() {
     };
   }, [invalidatePreviewCache]);
 
+  // Handle Escape key to close Help modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isHelpOpen) {
+        setIsHelpOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isHelpOpen]);
+
   // Load sample SVG
   const handleLoadSample = (sample?: SvgSample) => {
     handleResetPreview();
@@ -573,11 +589,20 @@ export default function App() {
         </div>
 
         {/* Top Bar Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setIsHelpOpen(true)}
+            title="Help & documentation"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/80 rounded-md transition shadow-sm cursor-pointer"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Help</span>
+          </button>
+
           <button
             onClick={handleDownloadStandaloneHtml}
             title="Download self-contained single-file HTML version runnable offline directly in Chrome"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/80 rounded-md transition shadow-sm"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 border border-neutral-700/80 rounded-md transition shadow-sm cursor-pointer"
           >
             <FileDown className="w-3.5 h-3.5 text-indigo-400" />
             <span>Export Standalone HTML</span>
@@ -1386,6 +1411,112 @@ export default function App() {
           </div>
         </section>
       </main>
+
+      {/* Help Modal Popup */}
+      {isHelpOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6"
+          onClick={() => setIsHelpOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="help-modal-title"
+        >
+          <div
+            className="bg-neutral-900 border border-neutral-800 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl relative overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-neutral-800 flex items-center justify-between shrink-0 bg-neutral-900/90">
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                  <HelpCircle className="w-4 h-4" />
+                </div>
+                <h2 id="help-modal-title" className="text-sm font-bold text-white tracking-wide uppercase">
+                  Help & Documentation
+                </h2>
+              </div>
+              <button
+                onClick={() => setIsHelpOpen(false)}
+                className="text-neutral-400 hover:text-white p-1.5 rounded-lg hover:bg-neutral-800 transition cursor-pointer"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Content - Scrollable */}
+            <div className="p-6 overflow-y-auto space-y-6 text-xs text-neutral-300 leading-relaxed">
+              {/* HOW TO MAKE A VIDEO */}
+              <div>
+                <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2.5">
+                  HOW TO MAKE A VIDEO
+                </h3>
+                <ol className="list-decimal list-inside space-y-1.5 text-neutral-200">
+                  <li>Paste your SVG code in the editor (or load a sample).</li>
+                  <li>Choose an Animation style below.</li>
+                  <li>Choose a Background source.</li>
+                  <li>Set Duration (1–30s), Resolution (720p/1080p), Frame Rate (24/30/60).</li>
+                  <li>Click Render Video, then Download MP4/WebM — or Export Standalone HTML.</li>
+                </ol>
+              </div>
+
+              {/* ANIMATIONS — WHAT EACH DOES */}
+              <div>
+                <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2.5">
+                  ANIMATIONS — WHAT EACH DOES
+                </h3>
+                <ul className="space-y-2.5 text-neutral-200">
+                  <li>
+                    <span className="font-semibold text-white">Draw-on:</span> Strokes draw themselves like hand-drawing; fills fade in at the end. Best for line art and outlines.
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Fade in:</span> The artwork gently fades in from transparent. Best for soft reveals.
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Spin (continuous):</span> Rotates your artwork non-stop around its center. "Rotations" (1–10) = full turns per video. Background stays still. Best for loaders and spinners.
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Pulse:</span> Soft blink — fully visible on the very first frame (great for file thumbnails), then gently pulses. "Pulses" (1–10) = pulses per video. Best for loading indicators.
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Progress:</span> Loading-bar mode — the bar fills 0→100% with a live percentage counter. Your SVG needs id="progress-fill" on the fill rect and id="progress-text" on the % label. Best for progress/download bars.
+                  </li>
+                </ul>
+              </div>
+
+              {/* BACKGROUND SOURCE */}
+              <div>
+                <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2.5">
+                  BACKGROUND SOURCE
+                </h3>
+                <ul className="space-y-1.5 text-neutral-200">
+                  <li>
+                    <span className="font-semibold text-white">From my SVG code (default):</span> the video background is exactly your SVG's background.
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Custom color:</span> use any color (or transparent) instead.
+                  </li>
+                </ul>
+              </div>
+
+              {/* TIPS */}
+              <div>
+                <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2.5">
+                  TIPS
+                </h3>
+                <ul className="space-y-1.5 text-neutral-200">
+                  <li>
+                    The video's first frame becomes its thumbnail in file managers — Pulse and Progress keep your loader visible from frame 0.
+                  </li>
+                  <li>
+                    For green-screen (chroma key) videos, make your SVG background pure #00FF00 and keep "From my SVG code".
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Embedded CSS for custom styling */}
       <style>{`
