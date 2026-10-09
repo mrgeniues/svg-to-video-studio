@@ -60,8 +60,18 @@ export default function App() {
 
   // Animation & Video Configuration
   const [animationStyle, setAnimationStyle] = useState<AnimationStyle>('draw-on');
-  const [duration, setDuration] = useState<number>(5);
-  const [spinCount, setSpinCount] = useState<number>(() => Math.max(1, Math.round(15 / 2)));
+  // Per-tab duration defaults: SVG=5s, Remotion=15s
+  const [svgDuration, setSvgDuration] = useState<number>(5);
+  const [remotionDuration, setRemotionDuration] = useState<number>(15);
+  const duration = appMode === 'svg' ? svgDuration : remotionDuration;
+  const setDuration = (val: number) => {
+    if (appMode === 'svg') {
+      setSvgDuration(val);
+    } else {
+      setRemotionDuration(val);
+    }
+  };
+  const [spinCount, setSpinCount] = useState<number>(() => Math.max(1, Math.round(5 / 2)));
   const [isCustomSpinCount, setIsCustomSpinCount] = useState<boolean>(false);
   const [resolutionId, setResolutionId] = useState<string>('1080p');
   const [fps, setFps] = useState<number>(30);
@@ -624,7 +634,7 @@ export default function App() {
         <div className="inline-flex rounded-lg p-1 bg-neutral-950 border border-neutral-800/80">
           <button
             type="button"
-            onClick={() => { setAppMode('svg'); setDuration(5); }}
+            onClick={() => setAppMode('svg')}
             className={`px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
               appMode === 'svg'
                 ? 'bg-indigo-600 text-white shadow-sm'
@@ -636,7 +646,7 @@ export default function App() {
           </button>
           <button
             type="button"
-            onClick={() => { setAppMode('remotion'); setDuration(15); }}
+            onClick={() => setAppMode('remotion')}
             className={`px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
               appMode === 'remotion'
                 ? 'bg-indigo-600 text-white shadow-sm'
