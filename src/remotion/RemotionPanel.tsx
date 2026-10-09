@@ -154,6 +154,7 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
   // STYLES Dropdown State & Editor Ref
   const [selectedStyleOption, setSelectedStyleOption] = useState<string>('');
   const codeEditorRef = useRef<HTMLTextAreaElement>(null);
+  const lastStyleInsertRef = useRef<{ end: number; snippet: string } | null>(null);
 
   // Insert style snippet at cursor position
   const handleInsertStyleSnippet = (snippet: string) => {
@@ -161,19 +162,50 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
     const textarea = codeEditorRef.current;
     if (!textarea) {
       setCodeDraft((prev) => prev + '\n' + snippet);
+      lastStyleInsertRef.current = null;
       setSelectedStyleOption('');
       return;
     }
-    const start = textarea.selectionStart ?? textarea.value.length;
-    const end = textarea.selectionEnd ?? textarea.value.length;
+
     const currentVal = textarea.value;
-    const newVal = currentVal.substring(0, start) + snippet + currentVal.substring(end);
+    const declMatch = currentVal.match(/^\s*(let|const|var)\s+s\s*=/m);
+    const formattedSnippet = snippet.endsWith('\n') ? snippet : snippet + '\n';
+
+    let newVal = '';
+    let newPos = 0;
+
+    if (!declMatch || declMatch.index === undefined) {
+      lastStyleInsertRef.current = null;
+      const needsLeadingNewline = currentVal.length > 0 && !currentVal.endsWith('\n');
+      const textToInsert = (needsLeadingNewline ? '\n' : '') + formattedSnippet;
+      newVal = currentVal + textToInsert;
+      newPos = currentVal.length + textToInsert.length;
+    } else {
+      const lineEnd = currentVal.indexOf('\n', declMatch.index);
+      const declInsertAt = lineEnd !== -1 ? lineEnd + 1 : currentVal.length;
+
+      let insertAt = declInsertAt;
+      const prevRef = lastStyleInsertRef.current;
+      if (
+        prevRef &&
+        prevRef.end > declInsertAt &&
+        prevRef.end <= currentVal.length &&
+        currentVal.slice(prevRef.end - prevRef.snippet.length, prevRef.end) === prevRef.snippet
+      ) {
+        insertAt = prevRef.end;
+      }
+
+      const textToInsert = lineEnd === -1 && insertAt === currentVal.length ? '\n' + formattedSnippet : formattedSnippet;
+      newVal = currentVal.substring(0, insertAt) + textToInsert + currentVal.substring(insertAt);
+      newPos = insertAt + textToInsert.length;
+      lastStyleInsertRef.current = { end: newPos, snippet: textToInsert };
+    }
+
     setCodeDraft(newVal);
     if (validationStatus) setValidationStatus(null);
     setSelectedStyleOption('');
     setTimeout(() => {
       textarea.focus();
-      const newPos = start + snippet.length;
       textarea.setSelectionRange(newPos, newPos);
     }, 0);
   };
