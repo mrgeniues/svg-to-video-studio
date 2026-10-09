@@ -60,8 +60,8 @@ export default function App() {
 
   // Animation & Video Configuration
   const [animationStyle, setAnimationStyle] = useState<AnimationStyle>('draw-on');
-  const [duration, setDuration] = useState<number>(5);
-  const [spinCount, setSpinCount] = useState<number>(() => Math.max(1, Math.round(5 / 2)));
+  const [duration, setDuration] = useState<number>(15);
+  const [spinCount, setSpinCount] = useState<number>(() => Math.max(1, Math.round(15 / 2)));
   const [isCustomSpinCount, setIsCustomSpinCount] = useState<boolean>(false);
   const [resolutionId, setResolutionId] = useState<string>('1080p');
   const [fps, setFps] = useState<number>(30);
@@ -1584,13 +1584,16 @@ export default function App() {
                     <h4 className="font-semibold text-white mb-1">Controls &amp; Workflow:</h4>
                     <ul className="space-y-1.5 list-disc list-inside">
                       <li>
-                        <span className="font-semibold text-white">Template Picker:</span> Choose from 13 high-impact animated scenes across analytics, finance, AI, cybersecurity, e-commerce, sports, weather, logistics, energy, and real estate.
+                        <span className="font-semibold text-white">Template Picker:</span> Choose from 13 high-impact animated scenes plus Custom Code mode (14 available) across analytics, finance, AI, cybersecurity, e-commerce, sports, weather, logistics, energy, and real estate.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Custom Code Editor:</span> Full programmatic JS code editor modal with live validation, starter template, built-in 14-component HUD &amp; motion overlay library, seeded PRNG, easing helpers, and frame-accurate execution.
                       </li>
                       <li>
                         <span className="font-semibold text-white">Title &amp; Accent:</span> Customize the live scene title text and pick any brand accent color with instant preset swatches.
                       </li>
                       <li>
-                        <span className="font-semibold text-white">Duration, Resolution &amp; FPS:</span> Shared controls adjusting video length (1–30s), render resolution (1080p, 720p, 1:1, 9:16), and playback rate (24, 30, 60 FPS).
+                        <span className="font-semibold text-white">Duration, Resolution &amp; FPS:</span> Shared controls adjusting video length (1–30s, default 15s), render resolution (1080p, 720p, 1:1, 9:16), and playback rate (24, 30, 60 FPS).
                       </li>
                       <li>
                         <span className="font-semibold text-white">Live Preview:</span> Interactive requestAnimationFrame preview with Play/Pause, time scrubber, and frame indicator.
@@ -1643,7 +1646,97 @@ export default function App() {
                       <li>
                         <span className="font-semibold text-white">Real Estate Market:</span> Median price trend line with area fill drawing, property cards (generic house glyphs) with price count-up, mortgage rate comparison bars, listings table with NEW badges sliding in, neighborhood price heatmap grid, ROI buy-vs-rent donut, interest rate gauge, and new-listings ticker tape.
                       </li>
+                      <li>
+                        <span className="font-semibold text-white">Custom Code (14th Template):</span> Programmatic JS code generator returning complete vector SVG frames. Features instant syntax checking, live previewing, duration-relative frame timing, and full access to the 14-component overlay library.
+                      </li>
                     </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-white mb-1">Custom-Code API Contract:</h4>
+                    <p className="text-xs text-neutral-400 mb-2">
+                      When using the Custom Code mode, your script executes on every frame and must return a complete &lt;svg&gt; string:
+                    </p>
+                    <ul className="space-y-1.5 list-disc list-inside text-xs text-neutral-300 font-mono">
+                      <li>
+                        <span className="text-white font-sans font-semibold">Signature:</span> (frame, totalFrames, W, H, ctx) =&gt; string
+                      </li>
+                      <li>
+                        <span className="text-white font-sans font-semibold">Parameters:</span> <code className="text-indigo-300">frame</code> (0-based frame index), <code className="text-indigo-300">totalFrames</code>, <code className="text-indigo-300">W</code>, <code className="text-indigo-300">H</code> (canvas dimensions in pixels)
+                      </li>
+                      <li>
+                        <span className="text-white font-sans font-semibold">ctx Object:</span> &#123; title, accent, ease, easeOut, easeInOut, clamp, lerp, TAU, rand(seedStr), O &#125;
+                      </li>
+                      <li>
+                        <span className="text-white font-sans font-semibold">PRNG:</span> <code className="text-purple-300">ctx.rand(seedStr)</code> provides a deterministic seeded 0..1 pseudo-random number.
+                      </li>
+                      <li>
+                        <span className="text-white font-sans font-semibold">Overlay Library (ctx.O):</span> 14 pre-built motion components: gridOverlay, scanline, hudRing, dataTicker, lowerThird, counter, barChart, lineChart, donutChart, radarSweep, networkNodes, particles, waveform, kineticTitle.
+                      </li>
+                      <li>
+                        <span className="text-white font-sans font-semibold">Animation Rules:</span> Always animate using <code className="text-indigo-300">frame / totalFrames</code> so motion scales across any duration (1–30s). Never use <code className="text-red-300">Math.random()</code> or <code className="text-red-300">Date.now()</code>.
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-white mb-1">Custom-Code Copy-Paste Examples:</h4>
+
+                    {/* Example 1 */}
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-indigo-300">
+                          Example 1: Composing Overlays (gridOverlay + kineticTitle + barChart)
+                        </span>
+                        <span className="text-[11px] font-mono text-neutral-400">using ctx.O</span>
+                      </div>
+                      <pre className="bg-neutral-950 p-3 rounded-lg border border-neutral-800 text-[11px] font-mono text-emerald-300 overflow-x-auto leading-relaxed select-all">
+{`const bg = \`<rect width="\${W}" height="\${H}" fill="#0a0e17" />\`;
+const grid = ctx.O.gridOverlay(frame, totalFrames, W, H, { accent: ctx.accent });
+const title = ctx.O.kineticTitle(frame, totalFrames, W, H, { title: ctx.title, accent: ctx.accent });
+const chart = ctx.O.barChart(frame, totalFrames, W, H, { accent: ctx.accent });
+
+return \`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \${W} \${H}" width="\${W}" height="\${H}">
+  \${bg}
+  \${grid}
+  \${title}
+  \${chart}
+</svg>\`;`}
+                      </pre>
+                    </div>
+
+                    {/* Example 2 */}
+                    <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-indigo-300">
+                          Example 2: Hand-Rolled Animation (Rotating Accent Ring &amp; Core Pulse)
+                        </span>
+                        <span className="text-[11px] font-mono text-neutral-400">pure math, no overlays</span>
+                      </div>
+                      <pre className="bg-neutral-950 p-3 rounded-lg border border-neutral-800 text-[11px] font-mono text-emerald-300 overflow-x-auto leading-relaxed select-all">
+{`const p = totalFrames > 0 ? (frame / totalFrames) % 1 : 0;
+const cx = W / 2;
+const cy = H / 2;
+const angle = p * 360;
+const radius = ctx.lerp(120, 160, ctx.easeInOut((Math.sin(p * ctx.TAU) + 1) / 2));
+const pulse = ctx.clamp(Math.sin(p * ctx.TAU * 2) * 20, -15, 15);
+
+return \`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \${W} \${H}" width="\${W}" height="\${H}">
+  <rect width="\${W}" height="\${H}" fill="#07090e" />
+  <g transform="rotate(\${angle.toFixed(1)} \${cx} \${cy})">
+    <circle cx="\${cx}" cy="\${cy}" r="\${radius.toFixed(1)}" fill="none" stroke="\${ctx.accent}" stroke-width="4" stroke-dasharray="30 15 10 15" opacity="0.85" />
+    <circle cx="\${cx}" cy="\${cy}" r="\${(radius * 0.7).toFixed(1)}" fill="none" stroke="#ffffff" stroke-width="2" stroke-dasharray="8 8" opacity="0.4" />
+  </g>
+  <circle cx="\${cx}" cy="\${cy}" r="\${(35 + pulse).toFixed(1)}" fill="\${ctx.accent}" opacity="0.75" />
+  <text x="\${cx}" y="\${cy + 6}" fill="#ffffff" font-size="16" font-family="monospace" font-weight="bold" text-anchor="middle">
+    \${Math.round(p * 100)}%
+  </text>
+  <text x="\${cx}" y="\${cy + radius + 40}" fill="#94a3b8" font-size="18" font-family="monospace" font-weight="bold" text-anchor="middle" letter-spacing="3">
+    \${ctx.title}
+  </text>
+</svg>\`;`}
+                      </pre>
+                    </div>
                   </div>
                 </div>
               </div>
