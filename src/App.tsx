@@ -47,8 +47,12 @@ import {
   rasterizeSvgToBitmap
 } from './utils/renderer';
 import { generateStandaloneHtml } from './utils/standaloneHtml';
+import { RemotionPanel } from './remotion/RemotionPanel';
 
 export default function App() {
+  // App Mode State: 'svg' or 'remotion'
+  const [appMode, setAppMode] = useState<'svg' | 'remotion'>('svg');
+
   // SVG State
   const [svgCode, setSvgCode] = useState<string>(SAMPLE_SVGS[0].code);
   const [activeSampleIndex, setActiveSampleIndex] = useState<number>(0);
@@ -615,6 +619,42 @@ export default function App() {
         </div>
       </header>
 
+      {/* Mode Switcher Tabs */}
+      <div className="bg-neutral-900 border-b border-neutral-800 px-4 lg:px-6 py-2 flex items-center justify-between shrink-0 z-10">
+        <div className="inline-flex rounded-lg p-1 bg-neutral-950 border border-neutral-800/80">
+          <button
+            type="button"
+            onClick={() => { setAppMode('svg'); setDuration(5); }}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              appMode === 'svg'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Code2 className="w-3.5 h-3.5" />
+            <span>SVG Studio</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAppMode('remotion'); setDuration(15); }}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              appMode === 'remotion'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+            <span>Remotion</span>
+          </button>
+        </div>
+
+        <div className="text-xs text-neutral-400 hidden sm:flex items-center gap-2">
+          <span className="font-medium text-neutral-300">
+            {appMode === 'svg' ? 'Custom SVG Vector Studio' : 'Code-Driven Motion Video Templates'}
+          </span>
+        </div>
+      </div>
+
       {/* Browser Support Alert */}
       {!browserCheck.supported && (
         <div className="bg-amber-950/80 border-b border-amber-800/80 px-4 py-3 text-xs text-amber-200 flex items-center gap-2">
@@ -623,8 +663,9 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Workspace Layout */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-y-auto lg:overflow-hidden">
+      {/* Mode 1: SVG Studio Main Workspace Layout */}
+      {appMode === 'svg' && (
+        <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0 overflow-y-auto lg:overflow-hidden">
         {/* Left Column: Code Editor & Samples (5 cols on desktop) */}
         <section className="lg:col-span-5 border-r border-neutral-800 flex flex-col bg-neutral-900/30 min-h-[460px] lg:min-h-0">
           {/* Editor Header */}
@@ -1411,6 +1452,21 @@ export default function App() {
           </div>
         </section>
       </main>
+      )}
+
+      {/* Mode 2: Remotion Panel */}
+      {appMode === 'remotion' && (
+        <RemotionPanel
+          duration={duration}
+          setDuration={setDuration}
+          resolutionId={resolutionId}
+          setResolutionId={setResolutionId}
+          fps={fps}
+          setFps={setFps}
+          selectedResolution={selectedResolution}
+          totalFrames={totalFrames}
+        />
+      )}
 
       {/* Help Modal Popup */}
       {isHelpOpen && (
@@ -1512,6 +1568,84 @@ export default function App() {
                     For green-screen (chroma key) videos, make your SVG background pure #00FF00 and keep "From my SVG code".
                   </li>
                 </ul>
+              </div>
+
+              {/* REMOTION MODE */}
+              <div>
+                <h3 className="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-2.5">
+                  REMOTION MODE
+                </h3>
+                <div className="space-y-3 text-neutral-200">
+                  <p>
+                    Remotion mode provides code-driven, procedural motion graphic video templates rendered 100% deterministically from vector SVG scenes directly to MP4 in your browser.
+                  </p>
+
+                  <div>
+                    <h4 className="font-semibold text-white mb-1">Controls &amp; Workflow:</h4>
+                    <ul className="space-y-1.5 list-disc list-inside">
+                      <li>
+                        <span className="font-semibold text-white">Template Picker:</span> Choose from 13 high-impact animated scenes across analytics, finance, AI, cybersecurity, e-commerce, sports, weather, logistics, energy, and real estate.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Title &amp; Accent:</span> Customize the live scene title text and pick any brand accent color with instant preset swatches.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Duration, Resolution &amp; FPS:</span> Shared controls adjusting video length (1–30s), render resolution (1080p, 720p, 1:1, 9:16), and playback rate (24, 30, 60 FPS).
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Live Preview:</span> Interactive requestAnimationFrame preview with Play/Pause, time scrubber, and frame indicator.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Render Remotion Video:</span> Pre-rasterizes frames offscreen and encodes frame-accurately via WebCodecs H.264 into a downloadable MP4 video.
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-white mb-1">What Each Template Contains:</h4>
+                    <ul className="space-y-2 list-disc list-inside">
+                      <li>
+                        <span className="font-semibold text-white">Business Analytics Dashboard:</span> Command-center header with live pulse, 4 KPI cards counting up with delta tags, multi-series line chart with glowing end dots, dual capacity donut charts, regional performance bar charts, forex data table with sparklines, global network arcs with traveling light pulses, and camera drift zoom.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Finance Trading Dashboard:</span> Continuous scrolling ticker tape, candlestick chart building candle-by-candle with wicks, large price ticker with flash badge, real-time Level 2 order book with bid/ask depth bars, portfolio asset allocation donut, and streaming financial news headline wire.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">AI Tech Dashboard:</span> 4-layer synaptic neural network with traveling pulse nodes, cyberpunk terminal logs typing character-by-character with blinking cursor, dual progress rings for Training and Inference, 8-node GPU cluster telemetry grid with temperature metrics, and real-time frame latency histogram.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Crypto Market Dashboard:</span> Hero coin price count-up with 24h change badge, candlestick chart building candle-by-candle across full duration, coin cards with mini sparklines, market-cap dominance donut with % counter, volatility gauge with sweeping needle, order book bid/ask depth rows, blockchain network panel with traveling light pulses, and Fear &amp; Greed index dial.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Cybersecurity Command Center:</span> World dotted map with pulsing threat nodes and arcing attack lines, live threat log table with severity chips (CRITICAL/HIGH/MED) sliding in, shield emblem with continuous rotating radar scan ring, firewall status toggles flipping, blocked-attacks counter counting up, network topology graph with traveling pulses, flashing alert banners, and encryption progress bars with % counters.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Social Media Growth / Marketing:</span> Big follower counter with +N popup bursts, engagement multi-line chart drawing itself, platform cards with growth % chips (generic glyphs), animated bar chart race reordering by value, traffic sources donut, viral post card with ticking like and comment counters, hashtag ticker tape with seamless looping, and 7x24 audience activity heatmap lighting up cell by cell.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">E-Commerce Sales:</span> Revenue counter with delta chip, sales line chart with area fill drawing, product cards with depleting stock bars, conversion funnel filling top-down stage by stage, orders table with status pills (PAID/SHIPPED/PENDING) sliding in, top-products horizontal bar chart growing, live orders ticker tape, and cart abandonment gauge with needle.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Health &amp; Fitness:</span> Step counter ring filling with %, pulsing ECG heart-rate line sweeping, calorie burn donut, weekly activity bar chart growing, sleep stages stacked horizontal bars, workout streak calendar grid lighting up day cells, weight trend line with dashed target line, and activity timeline with event dots appearing.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Sports Analytics:</span> Scoreboard with flipping digit cards, player profile cards with calibrated radar/spider charts, match timeline with event markers (goals/cards/subs) appearing, possession donut (home/away %), shot map dots on pitch diagram with goal flashes, league table with position arrows, win probability gauge, and commentary ticker tape.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Weather &amp; Climate:</span> Temperature gauge with count-up degrees, 7-day forecast cards with vector weather glyphs (sun/cloud/rain), precipitation bar chart, wind compass with rotating needle, humidity progress ring, world map with weather nodes and drifting clouds, radar sweep with expanding rings, and severe-weather alert banner flashing.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Logistics / Supply Chain:</span> World map with shipping routes (dashed arcs) and traveling cargo pulses, shipment status cards with progress bars, warehouse inventory bars, fleet table with status pills (EN ROUTE/DELAYED/DELIVERED), on-time delivery donut, delivery route timeline with checkpoint dots filling, container counters by port counting up, and shipment ticker tape.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Energy / Power Grid:</span> Power grid network map with current-flow pulses along lines, energy mix donut (solar/wind/hydro/fossil) with % counters, consumption vs production dual line chart drawing, battery charge rings filling, solar output gauge, CO2 counter ticking, grid load bars with peak flash, and peak-demand alert banner.
+                      </li>
+                      <li>
+                        <span className="font-semibold text-white">Real Estate Market:</span> Median price trend line with area fill drawing, property cards (generic house glyphs) with price count-up, mortgage rate comparison bars, listings table with NEW badges sliding in, neighborhood price heatmap grid, ROI buy-vs-rent donut, interest rate gauge, and new-listings ticker tape.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
