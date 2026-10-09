@@ -15,9 +15,13 @@ import {
   Type,
   LayoutTemplate,
   AlertCircle,
-  XCircle
+  XCircle,
+  Code,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { REMOTION_TEMPLATES, RemotionTemplate } from './templates';
+import { OVERLAYS, stringSeedRng, escapeXmlOverlay } from './overlays';
 import { renderSvgFramesToVideo } from './videoRenderer';
 import {
   RESOLUTIONS,
@@ -26,6 +30,58 @@ import {
   RenderResult,
   checkBrowserCapabilities
 } from '../utils/renderer';
+
+export const DEFAULT_CUSTOM_CODE = `// Compose background + overlays into a complete SVG frame
+const bg = \`<rect width="\${W}" height="\${H}" fill="#0b0f19" />\`;
+const grid = ctx.O.gridOverlay(frame, totalFrames, W, H, { accent: ctx.accent });
+const title = ctx.O.kineticTitle(frame, totalFrames, W, H, { title: ctx.title, accent: ctx.accent });
+const chart = ctx.O.barChart(frame, totalFrames, W, H, { accent: ctx.accent });
+
+return \`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \${W} \${H}" width="\${W}" height="\${H}">
+  \${bg}
+  \${grid}
+  \${title}
+  \${chart}
+</svg>\`;`;
+
+export function makeCustomCodeCtx(title: string, accent: string) {
+  return {
+    title: title || 'CUSTOM MOTION GRAPHIC',
+    accent: accent || '#6366f1',
+    ease: (t: number) => {
+      const c = Math.max(0, Math.min(1, t));
+      return c * c * (3 - 2 * c);
+    },
+    easeOut: (t: number) => {
+      const c = Math.max(0, Math.min(1, t));
+      return 1 - (1 - c) * (1 - c);
+    },
+    easeInOut: (t: number) => {
+      const c = Math.max(0, Math.min(1, t));
+      return c < 0.5 ? 2 * c * c : 1 - Math.pow(-2 * c + 2, 2) / 2;
+    },
+    clamp: (v: number, min: number, max: number) => Math.max(min, Math.min(max, v)),
+    lerp: (a: number, b: number, t: number) => a + (b - a) * t,
+    TAU: Math.PI * 2,
+    rand: (seedStr: string = 'rnd') => stringSeedRng(String(seedStr))(),
+    O: OVERLAYS
+  };
+}
+
+const CUSTOM_CODE_TEMPLATE_META: RemotionTemplate = {
+  id: 'custom-code',
+  name: 'Custom Code',
+  tagline: 'Programmatic SVG frame generator with full JS control',
+  defaultTitle: 'CUSTOM MOTION GRAPHIC',
+  defaultAccent: '#6366f1',
+  presetAccents: ['#6366f1', '#ec4899', '#06b6d4', '#10b981', '#f59e0b', '#ffffff'],
+  scenes: [
+    'Custom JS code returning complete <svg> per frame',
+    'Access frame, totalFrames, W, H, & ctx runtime',
+    'Built-in 14-component HUD & motion overlay library'
+  ],
+  renderFrame: () => ''
+};
 
 interface RemotionPanelProps {
   duration: number;
@@ -50,14 +106,29 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
 }) => {
   // Selected Template
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(REMOTION_TEMPLATES[0].id);
-  const selectedTemplate = useMemo(
-    () => REMOTION_TEMPLATES.find((t) => t.id === selectedTemplateId) || REMOTION_TEMPLATES[0],
-    [selectedTemplateId]
-  );
+  const selectedTemplate = useMemo(() => {
+    if (selectedTemplateId === 'custom-code') {
+      return CUSTOM_CODE_TEMPLATE_META;
+    }
+    return REMOTION_TEMPLATES.find((t) => t.id === selectedTemplateId) || REMOTION_TEMPLATES[0];
+  }, [selectedTemplateId]);
 
   // Custom Controls State
   const [title, setTitle] = useState<string>(selectedTemplate.defaultTitle);
   const [accent, setAccent] = useState<string>(selectedTemplate.defaultAccent);
+
+  // Custom Code State
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState<boolean>(false);
+  const [codeDraft, setCodeDraft] = useState<string>(DEFAULT_CUSTOM_CODE);
+  const [customCodeFn, setCustomCodeFn] = useState<Function>(() => {
+    return new Function('frame', 'totalFrames', 'W', 'H', 'ctx', DEFAULT_CUSTOM_CODE);
+  });
+  const [validationStatus, setValidationStatus] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [isApiRefOpen, setIsApiRefOpen] = useState<boolean>(false);
+  const [customCodeError, setCustomCodeError] = useState<string | null>(null);
 
   // When template changes, update default title & accent
   const handleSelectTemplate = (tpl: RemotionTemplate) => {
@@ -66,6 +137,12 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
     setAccent(tpl.defaultAccent);
     setPreviewTime(0);
     setIsPlaying(false);
+    setCustomCodeError(null);
+  };
+
+  const handleSelectCustomCode = () => {
+    setSelectedTemplateId('custom-code');
+    setIsCodeModalOpen(true);
   };
 
   // Live Playback State
@@ -87,8 +164,39 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
 
   const browserCheck = useMemo(() => checkBrowserCapabilities(), []);
 
-  // Compute current frame SVG
+  // Compute current frame index
+  const currentFrameIndex = useMemo(() => {
+    if (totalFrames <= 1) return 0;
+    return Math.min(totalFrames - 1, Math.max(0, Math.floor((previewTime / duration) * totalFrames)));
+  }, [previewTime, duration, totalFrames]);
+
+  // Compute current frame SVG with try/catch isolation
   const currentFrameSvg = useMemo(() => {
+    if (selectedTemplateId === 'custom-code') {
+      try {
+        const ctx = makeCustomCodeCtx(title, accent);
+        return customCodeFn(
+          currentFrameIndex,
+          totalFrames,
+          selectedResolution.width,
+          selectedResolution.height,
+          ctx
+        );
+      } catch (err: any) {
+        const errMsg = `Custom code error at frame ${currentFrameIndex}: ${err.message || String(err)}`;
+        setTimeout(() => {
+          setIsPlaying(false);
+          setCustomCodeError(errMsg);
+        }, 0);
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${selectedResolution.width} ${selectedResolution.height}" width="${selectedResolution.width}" height="${selectedResolution.height}">
+          <rect width="${selectedResolution.width}" height="${selectedResolution.height}" fill="#180a0a" />
+          <text x="${selectedResolution.width / 2}" y="${selectedResolution.height / 2 - 20}" fill="#ef4444" font-size="22" font-family="monospace" text-anchor="middle" font-weight="bold">Custom Code Execution Error</text>
+          <text x="${selectedResolution.width / 2}" y="${selectedResolution.height / 2 + 16}" fill="#fca5a5" font-size="14" font-family="monospace" text-anchor="middle">${escapeXmlOverlay(err.message || String(err))}</text>
+          <text x="${selectedResolution.width / 2}" y="${selectedResolution.height / 2 + 54}" fill="#94a3b8" font-size="13" font-family="monospace" text-anchor="middle">Frame ${currentFrameIndex} of ${totalFrames}</text>
+        </svg>`;
+      }
+    }
+
     return selectedTemplate.renderFrame(
       previewTime,
       duration,
@@ -96,7 +204,18 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
       selectedResolution.height,
       { title, accent }
     );
-  }, [selectedTemplate, previewTime, duration, selectedResolution, title, accent]);
+  }, [
+    selectedTemplateId,
+    selectedTemplate,
+    customCodeFn,
+    currentFrameIndex,
+    totalFrames,
+    previewTime,
+    duration,
+    selectedResolution,
+    title,
+    accent
+  ]);
 
   // RequestAnimationFrame playback loop
   useEffect(() => {
@@ -145,6 +264,56 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
     setPreviewTime(0);
   };
 
+  // Custom Code Validation & Compile Helpers
+  const validateCustomCode = (code: string) => {
+    try {
+      const fn = new Function('frame', 'totalFrames', 'W', 'H', 'ctx', code);
+      const testCtx = makeCustomCodeCtx(title || 'TEST', accent || '#6366f1');
+      const testSvg = fn(0, totalFrames, selectedResolution.width, selectedResolution.height, testCtx);
+      if (typeof testSvg !== 'string' || !testSvg.trim().startsWith('<svg')) {
+        return {
+          valid: false,
+          error: 'Code must return a valid SVG string starting with <svg>...</svg>'
+        };
+      }
+      return { valid: true, fn };
+    } catch (err: any) {
+      return {
+        valid: false,
+        error: err.message || String(err)
+      };
+    }
+  };
+
+  const handleValidateCode = () => {
+    const res = validateCustomCode(codeDraft);
+    if (res.valid) {
+      setValidationStatus({ type: 'success', message: 'Code valid' });
+    } else {
+      setValidationStatus({ type: 'error', message: res.error || 'Code invalid' });
+    }
+  };
+
+  const handleApplyAndPreview = () => {
+    const res = validateCustomCode(codeDraft);
+    if (res.valid && res.fn) {
+      setValidationStatus({ type: 'success', message: 'Code valid' });
+      setCustomCodeFn(() => res.fn!);
+      setSelectedTemplateId('custom-code');
+      setCustomCodeError(null);
+      setPreviewTime(0);
+      setIsPlaying(false);
+      setIsCodeModalOpen(false);
+    } else {
+      setValidationStatus({ type: 'error', message: res.error || 'Cannot apply invalid code' });
+    }
+  };
+
+  const handleResetToStarter = () => {
+    setCodeDraft(DEFAULT_CUSTOM_CODE);
+    setValidationStatus(null);
+  };
+
   // Render Remotion Video to MP4
   const handleStartRender = async () => {
     setIsPlaying(false);
@@ -158,17 +327,27 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
     const tpl = selectedTemplate;
     const currentTitle = title;
     const currentAccent = accent;
+    const isCustom = selectedTemplateId === 'custom-code';
     const width = selectedResolution.width;
     const height = selectedResolution.height;
 
     try {
       const result = await renderSvgFramesToVideo({
         getFrameSvg: (frameIdx, totalF) => {
-          const t = totalF <= 1 ? 0 : (frameIdx / (totalF - 1)) * duration;
-          return tpl.renderFrame(t, duration, width, height, {
-            title: currentTitle,
-            accent: currentAccent
-          });
+          if (isCustom) {
+            try {
+              const ctx = makeCustomCodeCtx(currentTitle, currentAccent);
+              return customCodeFn(frameIdx, totalF, width, height, ctx);
+            } catch (err: any) {
+              throw new Error(`Custom code error at frame ${frameIdx}: ${err.message || String(err)}`);
+            }
+          } else {
+            const t = totalF <= 1 ? 0 : (frameIdx / (totalF - 1)) * duration;
+            return tpl.renderFrame(t, duration, width, height, {
+              title: currentTitle,
+              accent: currentAccent
+            });
+          }
         },
         duration,
         fps,
@@ -242,7 +421,7 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
             <div className="flex items-center gap-2 mb-3">
               <LayoutTemplate className="w-4 h-4 text-indigo-400" />
               <h2 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
-                Select Remotion Template ({REMOTION_TEMPLATES.length} Available)
+                SELECT REMOTION TEMPLATE (14 AVAILABLE)
               </h2>
             </div>
 
@@ -293,6 +472,49 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
                   </button>
                 );
               })}
+
+              {/* 14th Card: Custom Code */}
+              <button
+                type="button"
+                onClick={handleSelectCustomCode}
+                className={`text-left p-4 rounded-xl border transition cursor-pointer relative ${
+                  selectedTemplateId === 'custom-code'
+                    ? 'bg-neutral-800/90 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
+                    : 'bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-800/40'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Code className="w-4 h-4 text-indigo-400" />
+                      Custom Code
+                      {selectedTemplateId === 'custom-code' && (
+                        <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+                      )}
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-0.5">
+                      Programmatic SVG frame generator with full JS control
+                    </p>
+                  </div>
+                  <div
+                    className="w-5 h-5 rounded-md border border-neutral-700 shrink-0 mt-0.5 flex items-center justify-center bg-indigo-600/30 text-indigo-300 font-mono text-[11px] font-bold"
+                    title="Custom Code </>"
+                  >
+                    &lt;/&gt;
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-2.5 border-t border-neutral-800/80">
+                  <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1.5">
+                    Animated Scene Sections:
+                  </span>
+                  <ul className="text-[11px] text-neutral-300 space-y-1 list-disc list-inside">
+                    <li className="leading-tight">Custom JS code returning complete &lt;svg&gt; per frame</li>
+                    <li className="leading-tight">Access frame, totalFrames, W, H, &amp; ctx runtime</li>
+                    <li className="leading-tight">Built-in 14-component HUD &amp; motion overlay library</li>
+                  </ul>
+                </div>
+              </button>
             </div>
           </div>
 
@@ -356,6 +578,20 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Edit Custom Code Quick Button if Custom Code is selected */}
+            {selectedTemplateId === 'custom-code' && (
+              <div className="pt-2 border-t border-neutral-800/80">
+                <button
+                  type="button"
+                  onClick={() => setIsCodeModalOpen(true)}
+                  className="w-full py-2.5 px-4 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/50 rounded-lg text-xs font-semibold text-indigo-300 flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+                >
+                  <Code className="w-4 h-4 text-indigo-400" />
+                  <span>Open Custom Code Editor</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Section 3: Shared Video Settings (Duration, Resolution, FPS) */}
@@ -494,6 +730,36 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
             </div>
           </div>
 
+          {/* Custom Code Execution Error Banner */}
+          {customCodeError && (
+            <div className="p-3 bg-red-950/80 border border-red-700/80 rounded-xl text-xs text-red-200 flex items-start justify-between gap-2.5 shadow-md">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold text-red-300">Custom Code Error: </span>
+                  <span className="font-mono text-[11px] break-all">{customCodeError}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsCodeModalOpen(true)}
+                  className="px-2 py-1 bg-red-900/60 hover:bg-red-800 text-red-100 rounded text-[11px] font-medium transition cursor-pointer"
+                >
+                  Edit Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomCodeError(null)}
+                  className="text-red-400 hover:text-red-200 p-0.5 transition cursor-pointer"
+                  title="Dismiss error"
+                >
+                  <XCircle className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Preview Container */}
           <div className="flex-1 min-h-[360px] max-h-[560px] bg-neutral-900/60 rounded-2xl border border-neutral-800 flex items-center justify-center relative overflow-hidden shadow-inner p-2 sm:p-4">
             {activePreviewTab === 'live' ? (
@@ -523,7 +789,7 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
                 {previewTime.toFixed(2)}s / {duration.toFixed(2)}s
               </span>
               <span className="text-indigo-400">
-                Frame {Math.round((previewTime / duration) * (totalFrames - 1))} of {totalFrames}
+                Frame {currentFrameIndex} of {totalFrames}
               </span>
             </div>
 
@@ -651,6 +917,220 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Custom Code Editor Modal Popup */}
+      {isCodeModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsCodeModalOpen(false);
+            }
+          }}
+        >
+          <div className="bg-neutral-900 border border-neutral-700/80 rounded-2xl max-w-4xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-neutral-950/80 border-b border-neutral-800 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <Code className="w-5 h-5 text-indigo-400" />
+                <div>
+                  <h3 className="text-sm font-bold text-white tracking-wide">
+                    CUSTOM CODE EDITOR
+                  </h3>
+                  <p className="text-[11px] text-neutral-400">
+                    Write JavaScript to generate vector SVG frames. Purely deterministic and duration-relative.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCodeModalOpen(false)}
+                className="text-neutral-400 hover:text-white p-1 rounded-lg hover:bg-neutral-800 transition cursor-pointer"
+                title="Close"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {/* Validation Status Banner */}
+              {validationStatus && (
+                <div
+                  className={`p-3 rounded-xl border text-xs flex items-center gap-2.5 transition ${
+                    validationStatus.type === 'success'
+                      ? 'bg-emerald-950/70 border-emerald-700/80 text-emerald-200'
+                      : 'bg-red-950/70 border-red-700/80 text-red-200'
+                  }`}
+                >
+                  {validationStatus.type === 'success' ? (
+                    <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  )}
+                  <span className="font-mono text-[11px] break-all">
+                    {validationStatus.message}
+                  </span>
+                </div>
+              )}
+
+              {/* Monospace Code Editor Textarea */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-neutral-400 font-mono">
+                  <span>// frame: 0..{totalFrames - 1}, W: {selectedResolution.width}, H: {selectedResolution.height}</span>
+                  <span className="text-[11px] text-neutral-500">Return complete &lt;svg&gt; string</span>
+                </div>
+                <textarea
+                  value={codeDraft}
+                  onChange={(e) => {
+                    setCodeDraft(e.target.value);
+                    if (validationStatus) setValidationStatus(null);
+                  }}
+                  rows={14}
+                  spellCheck={false}
+                  placeholder="// Enter code returning <svg>..."
+                  className="w-full font-mono text-xs bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-emerald-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none leading-relaxed resize-y selection:bg-indigo-600/40"
+                />
+              </div>
+
+              {/* Action Buttons Row */}
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleValidateCode}
+                    className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 border border-neutral-700 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Validate Code</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyAndPreview}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition flex items-center gap-1.5 shadow-md shadow-indigo-600/20 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Apply &amp; Preview</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetToStarter}
+                  className="px-3 py-2 text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/60 rounded-lg text-xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset to starter</span>
+                </button>
+              </div>
+
+              {/* Collapsible API Reference */}
+              <div className="border border-neutral-800 rounded-xl overflow-hidden bg-neutral-950/40">
+                <button
+                  type="button"
+                  onClick={() => setIsApiRefOpen((prev) => !prev)}
+                  className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-neutral-300 hover:text-white transition cursor-pointer bg-neutral-900/60"
+                >
+                  <span className="flex items-center gap-2">
+                    <Code className="w-3.5 h-3.5 text-indigo-400" />
+                    API Reference &amp; Overlay Library Contract
+                  </span>
+                  {isApiRefOpen ? (
+                    <ChevronUp className="w-4 h-4 text-neutral-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-neutral-400" />
+                  )}
+                </button>
+
+                {isApiRefOpen && (
+                  <div className="p-4 space-y-3.5 text-xs text-neutral-300 border-t border-neutral-800/80 bg-neutral-950/70 font-sans">
+                    <div>
+                      <div className="font-semibold text-indigo-300 mb-1">Function Signature:</div>
+                      <code className="block bg-neutral-900 border border-neutral-800 rounded p-2 text-neutral-300 font-mono text-[11px]">
+                        (frame, totalFrames, W, H, ctx) =&gt; string
+                      </code>
+                    </div>
+
+                    <div>
+                      <div className="font-semibold text-indigo-300 mb-1">Available Parameters:</div>
+                      <ul className="space-y-1 list-disc list-inside font-mono text-[11px] text-neutral-300">
+                        <li><span className="text-white">frame</span>: 0-based frame index (0 .. totalFrames - 1)</li>
+                        <li><span className="text-white">totalFrames</span>: Total frames for chosen duration and FPS</li>
+                        <li><span className="text-white">W, H</span>: Canvas width and height in pixels (e.g. 1920 × 1080)</li>
+                        <li><span className="text-white">ctx</span>: Context bundle containing title, accent, easing math, seeded PRNG, and overlays</li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <div className="font-semibold text-indigo-300 mb-1">ctx Object Helpers:</div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-neutral-300">
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-amber-400 font-semibold">ctx.title</span>: Scene title string
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-amber-400 font-semibold">ctx.accent</span>: Brand accent hex code
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-cyan-400 font-semibold">ctx.ease(t)</span>: Smoothstep ease curve
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-cyan-400 font-semibold">ctx.easeOut(t)</span>: Quadratic ease-out curve
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-cyan-400 font-semibold">ctx.easeInOut(t)</span>: Quadratic ease-in-out curve
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-cyan-400 font-semibold">ctx.clamp(v, min, max)</span>: Clamps number in range
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-cyan-400 font-semibold">ctx.lerp(a, b, t)</span>: Linear interpolation
+                        </div>
+                        <div className="bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-cyan-400 font-semibold">ctx.TAU</span>: Constant 2π (6.28318...)
+                        </div>
+                        <div className="sm:col-span-2 bg-neutral-900/80 p-2 rounded border border-neutral-800">
+                          <span className="text-purple-400 font-semibold">ctx.rand(seedStr)</span>: Seeded deterministic 0..1 PRNG
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="font-semibold text-indigo-300 mb-1">Built-in Overlay Library (ctx.O):</div>
+                      <div className="bg-neutral-900/90 rounded p-2.5 border border-neutral-800 text-[11px] font-mono text-neutral-300 space-y-1">
+                        <div>ctx.O.gridOverlay(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.scanline(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.hudRing(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.dataTicker(frame, totalFrames, W, H, &#123; accent, title &#125;)</div>
+                        <div>ctx.O.lowerThird(frame, totalFrames, W, H, &#123; accent, title &#125;)</div>
+                        <div>ctx.O.counter(frame, totalFrames, W, H, &#123; accent, title &#125;)</div>
+                        <div>ctx.O.barChart(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.lineChart(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.donutChart(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.radarSweep(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.networkNodes(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.particles(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.waveform(frame, totalFrames, W, H, &#123; accent &#125;)</div>
+                        <div>ctx.O.kineticTitle(frame, totalFrames, W, H, &#123; title, accent &#125;)</div>
+                      </div>
+                    </div>
+
+                    <div className="pt-1 text-[11px] text-neutral-400 space-y-1">
+                      <p className="text-amber-300 font-semibold">Strict Rules:</p>
+                      <ul className="list-disc list-inside space-y-0.5">
+                        <li>The code body MUST RETURN a valid complete &lt;svg&gt;...&lt;/svg&gt; string.</li>
+                        <li>Animate using <code className="text-neutral-200">frame / totalFrames</code> (duration-relative).</li>
+                        <li>NEVER call <code className="text-neutral-200">Math.random()</code> or <code className="text-neutral-200">Date.now()</code>. Use <code className="text-neutral-200">ctx.rand(seed)</code> for pure determinism.</li>
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
