@@ -60,7 +60,7 @@ export default function App() {
 
   // Animation & Video Configuration
   const [animationStyle, setAnimationStyle] = useState<AnimationStyle>('draw-on');
-  const [duration, setDuration] = useState<number>(15);
+  const [duration, setDuration] = useState<number>(5);
   const [spinCount, setSpinCount] = useState<number>(() => Math.max(1, Math.round(15 / 2)));
   const [isCustomSpinCount, setIsCustomSpinCount] = useState<boolean>(false);
   const [resolutionId, setResolutionId] = useState<string>('1080p');
