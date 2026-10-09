@@ -18,7 +18,8 @@ import {
   Code,
   ChevronDown,
   ChevronUp,
-  ArrowLeft
+  ArrowLeft,
+  Package
 } from 'lucide-react';
 import { REMOTION_TEMPLATES, RemotionTemplate } from './templates';
 import { OVERLAYS, stringSeedRng, escapeXmlOverlay } from './overlays';
@@ -31,17 +32,32 @@ import {
   checkBrowserCapabilities
 } from '../utils/renderer';
 
+export const STYLE_SNIPPETS: { label: string; snippet: string }[] = [
+  { label: 'Grid Overlay', snippet: "s += ctx.O.gridOverlay(frame,totalFrames,W,H,{accent:ctx.accent, seed:'grid1'});\n" },
+  { label: 'Scanline', snippet: "s += ctx.O.scanline(frame,totalFrames,W,H,{accent:ctx.accent, seed:'scan1'});\n" },
+  { label: 'HUD Ring', snippet: "s += ctx.O.hudRing(frame,totalFrames,W,H,{accent:ctx.accent, seed:'hud1'});\n" },
+  { label: 'Data Ticker', snippet: "s += ctx.O.dataTicker(frame,totalFrames,W,H,{accent:ctx.accent, seed:'ticker1'});\n" },
+  { label: 'Lower Third', snippet: "s += ctx.O.lowerThird(frame,totalFrames,W,H,{accent:ctx.accent, seed:'l3rd1'});\n" },
+  { label: 'Counter', snippet: "s += ctx.O.counter(frame,totalFrames,W,H,{accent:ctx.accent, seed:'cnt1'});\n" },
+  { label: 'Bar Chart', snippet: "s += ctx.O.barChart(frame,totalFrames,W,H,{accent:ctx.accent, seed:'bar1'});\n" },
+  { label: 'Line Chart', snippet: "s += ctx.O.lineChart(frame,totalFrames,W,H,{accent:ctx.accent, seed:'line1'});\n" },
+  { label: 'Donut Chart', snippet: "s += ctx.O.donutChart(frame,totalFrames,W,H,{accent:ctx.accent, seed:'donut1'});\n" },
+  { label: 'Radar Sweep', snippet: "s += ctx.O.radarSweep(frame,totalFrames,W,H,{accent:ctx.accent, seed:'radar1'});\n" },
+  { label: 'Network Nodes', snippet: "s += ctx.O.networkNodes(frame,totalFrames,W,H,{accent:ctx.accent, seed:'net1'});\n" },
+  { label: 'Particles', snippet: "s += ctx.O.particles(frame,totalFrames,W,H,{accent:ctx.accent, seed:'part1'});\n" },
+  { label: 'Waveform', snippet: "s += ctx.O.waveform(frame,totalFrames,W,H,{accent:ctx.accent, seed:'wave1'});\n" },
+  { label: 'Kinetic Title', snippet: "s += ctx.O.kineticTitle(frame,totalFrames,W,H,{accent:ctx.accent, seed:'title1'});\n" }
+];
+
 export const DEFAULT_CUSTOM_CODE = `// Compose background + overlays into a complete SVG frame
-const bg = \`<rect width="\${W}" height="\${H}" fill="#0b0f19" />\`;
-const grid = ctx.O.gridOverlay(frame, totalFrames, W, H, { accent: ctx.accent });
-const title = ctx.O.kineticTitle(frame, totalFrames, W, H, { title: ctx.title, accent: ctx.accent });
-const chart = ctx.O.barChart(frame, totalFrames, W, H, { accent: ctx.accent });
+let s = '';
+s += \`<rect width="\${W}" height="\${H}" fill="#0b0f19" />\`;
+s += ctx.O.gridOverlay(frame, totalFrames, W, H, { accent: ctx.accent });
+s += ctx.O.kineticTitle(frame, totalFrames, W, H, { title: ctx.title, accent: ctx.accent });
+s += ctx.O.barChart(frame, totalFrames, W, H, { accent: ctx.accent });
 
 return \`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 \${W} \${H}" width="\${W}" height="\${H}">
-  \${bg}
-  \${grid}
-  \${title}
-  \${chart}
+  \${s}
 </svg>\`;`;
 
 export function makeCustomCodeCtx(title: string, accent: string) {
@@ -104,10 +120,13 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
   selectedResolution,
   totalFrames
 }) => {
-  // Selected Template & Custom Code Mode
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(REMOTION_TEMPLATES[0].id);
+  // View mode: 'code' (Code Workspace split view), 'templates' (13-template grid), 'template-mode' (normal template mode)
+  // Point 1: Remotion tab opens DIRECTLY in Code Workspace split view
+  type RemotionView = 'code' | 'templates' | 'template-mode';
+  const [viewMode, setViewMode] = useState<RemotionView>('code');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('custom-code');
   const lastBuiltinTemplateIdRef = useRef<string>(REMOTION_TEMPLATES[0].id);
-  const isCustomMode = selectedTemplateId === 'custom-code' || selectedTemplateId === 'custom';
+  const isCustomMode = viewMode === 'code' || selectedTemplateId === 'custom-code' || selectedTemplateId === 'custom';
 
   const selectedTemplate = useMemo(() => {
     if (isCustomMode) {
@@ -117,8 +136,8 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
   }, [selectedTemplateId, isCustomMode]);
 
   // Controls State
-  const [title, setTitle] = useState<string>(selectedTemplate.defaultTitle);
-  const [accent, setAccent] = useState<string>(selectedTemplate.defaultAccent);
+  const [title, setTitle] = useState<string>(CUSTOM_CODE_TEMPLATE_META.defaultTitle);
+  const [accent, setAccent] = useState<string>(CUSTOM_CODE_TEMPLATE_META.defaultAccent);
 
   // Custom Code State
   const [codeDraft, setCodeDraft] = useState<string>(DEFAULT_CUSTOM_CODE);
@@ -132,19 +151,69 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
   const [isApiRefOpen, setIsApiRefOpen] = useState<boolean>(false);
   const [customCodeError, setCustomCodeError] = useState<string | null>(null);
 
-  // When built-in template changes, update default title & accent
+  // STYLES Dropdown State & Editor Ref
+  const [selectedStyleOption, setSelectedStyleOption] = useState<string>('');
+  const codeEditorRef = useRef<HTMLTextAreaElement>(null);
+
+  // Insert style snippet at cursor position
+  const handleInsertStyleSnippet = (snippet: string) => {
+    if (!snippet) return;
+    const textarea = codeEditorRef.current;
+    if (!textarea) {
+      setCodeDraft((prev) => prev + '\n' + snippet);
+      setSelectedStyleOption('');
+      return;
+    }
+    const start = textarea.selectionStart ?? textarea.value.length;
+    const end = textarea.selectionEnd ?? textarea.value.length;
+    const currentVal = textarea.value;
+    const newVal = currentVal.substring(0, start) + snippet + currentVal.substring(end);
+    setCodeDraft(newVal);
+    if (validationStatus) setValidationStatus(null);
+    setSelectedStyleOption('');
+    setTimeout(() => {
+      textarea.focus();
+      const newPos = start + snippet.length;
+      textarea.setSelectionRange(newPos, newPos);
+    }, 0);
+  };
+
+  // Open Template Gallery (13 built-in templates only)
+  const handleOpenTemplatesGrid = () => {
+    setIsPlaying(false);
+    isPlayingRef.current = false;
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
+    setCustomCodeError(null);
+    setViewMode('templates');
+  };
+
+  // When built-in template clicked in grid, open normal template mode
   const handleSelectTemplate = (tpl: RemotionTemplate) => {
     setSelectedTemplateId(tpl.id);
     lastBuiltinTemplateIdRef.current = tpl.id;
+    isCustomModeRef.current = false;
     setTitle(tpl.defaultTitle);
     setAccent(tpl.defaultAccent);
     setPreviewTime(0);
+    previewTimeRef.current = 0;
+    currentFrameRef.current = 0;
     setIsPlaying(false);
+    isPlayingRef.current = false;
+    if (animFrameIdRef.current) {
+      cancelAnimationFrame(animFrameIdRef.current);
+      animFrameIdRef.current = null;
+    }
     setCustomCodeError(null);
+    setRenderError(null);
+    setViewMode('template-mode');
   };
 
-  // Switch to Custom Code Mode
-  const handleSelectCustomCode = () => {
+  // Return to Code Workspace (with editor content intact)
+  const handleBackToCode = () => {
+    setViewMode('code');
     setSelectedTemplateId('custom-code');
     isCustomModeRef.current = true;
     setPreviewTime(0);
@@ -158,23 +227,11 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
     }
     setCustomCodeError(null);
     setRenderError(null);
-    renderFrameSafe(0, 0);
   };
 
-  // Back to standard 14-card template picker
-  const handleBackToTemplates = () => {
-    setIsPlaying(false);
-    isPlayingRef.current = false;
-    if (animFrameIdRef.current) {
-      cancelAnimationFrame(animFrameIdRef.current);
-      animFrameIdRef.current = null;
-    }
-    setCustomCodeError(null);
-    setRenderError(null);
-    const targetId = lastBuiltinTemplateIdRef.current || REMOTION_TEMPLATES[0].id;
-    const targetTpl = REMOTION_TEMPLATES.find((t) => t.id === targetId) || REMOTION_TEMPLATES[0];
-    handleSelectTemplate(targetTpl);
-  };
+  // Alias for backward compatibility if referenced elsewhere
+  const handleSelectCustomCode = handleBackToCode;
+  const handleBackToTemplates = handleOpenTemplatesGrid;
 
   // Live Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -473,6 +530,8 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
   const handleResetToStarter = () => {
     setCodeDraft(DEFAULT_CUSTOM_CODE);
     setValidationStatus(null);
+    setCustomCodeError(null);
+    setSelectedStyleOption('');
   };
 
   // Render Remotion Video to MP4
@@ -572,60 +631,103 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
       {/* Top Banner */}
       <div className="bg-indigo-950/40 border-b border-indigo-800/40 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {isCustomMode ? (
+          {viewMode === 'code' ? (
             <Code className="w-4 h-4 text-indigo-400" />
           ) : (
             <Sparkles className="w-4 h-4 text-indigo-400" />
           )}
           <span className="text-xs font-semibold text-neutral-200">
-            {isCustomMode
+            {viewMode === 'code'
               ? 'Remotion Code Workspace — Custom SVG Motion Studio'
-              : 'Remotion Code-Driven Motion Video Templates'}
+              : viewMode === 'templates'
+              ? 'Remotion Template Gallery — 13 Built-in Animation Scenes'
+              : `Remotion Template: ${selectedTemplate.name}`}
           </span>
           <span className="text-[11px] text-neutral-400 hidden md:inline">
-            {isCustomMode
+            {viewMode === 'code'
               ? '— Full JS editor compiling frame-by-frame vector graphics directly to MP4'
               : '— 100% deterministic SVG frame generator rendered directly to MP4'}
           </span>
         </div>
-        {isCustomMode ? (
+        {viewMode === 'code' ? (
           <button
             type="button"
-            onClick={handleBackToTemplates}
+            onClick={handleOpenTemplatesGrid}
+            className="text-[11px] font-semibold text-neutral-300 hover:text-white bg-neutral-800/80 hover:bg-neutral-800 px-2.5 py-1 rounded border border-neutral-700/60 flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Package className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Templates (13 Available)</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleBackToCode}
             className="text-[11px] font-semibold text-indigo-300 hover:text-white bg-indigo-900/50 hover:bg-indigo-900/80 px-2.5 py-1 rounded border border-indigo-700/60 flex items-center gap-1.5 transition cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to Templates</span>
+            <span>Back to Code</span>
           </button>
-        ) : (
-          <span className="text-[11px] font-mono text-indigo-400 bg-indigo-900/40 px-2 py-0.5 rounded border border-indigo-700/50">
-            Pure Client-Side WebCodecs
-          </span>
         )}
       </div>
 
-      {isCustomMode ? (
+      {viewMode === 'code' ? (
         /* ========================================================
            CUSTOM CODE WORKSPACE: DEDICATED FULL-WIDTH SPLIT VIEW
            ======================================================== */
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0">
           {/* LEFT PANEL: ONLY Code Features (6 cols) */}
           <div className="lg:col-span-6 border-r border-neutral-800 flex flex-col bg-neutral-900/40 p-4 sm:p-5 space-y-4 overflow-y-auto">
-            {/* Top row: Back to Templates button */}
+            {/* Top row: Templates button & Workspace badge */}
             <div className="flex items-center justify-between pb-2 border-b border-neutral-800/80">
               <button
                 type="button"
-                onClick={handleBackToTemplates}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition cursor-pointer"
+                onClick={handleOpenTemplatesGrid}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition cursor-pointer shadow-sm"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Templates</span>
+                <Package className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Templates</span>
               </button>
 
               <div className="flex items-center gap-1.5 text-[11px] font-mono text-indigo-400 bg-indigo-950/60 border border-indigo-800/50 px-2.5 py-1 rounded">
                 <Code className="w-3 h-3" />
                 <span>Code Workspace Active</span>
               </div>
+            </div>
+
+            {/* STYLES dropdown above code editor */}
+            <div className="flex items-center justify-between gap-3 bg-neutral-950/70 p-2.5 rounded-xl border border-neutral-800">
+              <div className="flex items-center gap-2 flex-1">
+                <label
+                  htmlFor="styles-dropdown"
+                  className="text-[11px] font-bold text-neutral-300 uppercase tracking-wider flex items-center gap-1.5 shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>STYLES:</span>
+                </label>
+                <select
+                  id="styles-dropdown"
+                  value={selectedStyleOption}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val) {
+                      handleInsertStyleSnippet(val);
+                    }
+                  }}
+                  className="bg-neutral-900 border border-neutral-700/80 text-xs text-indigo-300 rounded-lg px-2.5 py-1.5 font-medium focus:border-indigo-500 outline-none cursor-pointer hover:bg-neutral-800 transition max-w-[220px]"
+                >
+                  <option value="" disabled>
+                    + Insert style...
+                  </option>
+                  {STYLE_SNIPPETS.map((item) => (
+                    <option key={item.label} value={item.snippet} className="bg-neutral-900 text-neutral-200">
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-mono hidden sm:inline">
+                14 overlays via ctx.O
+              </span>
             </div>
 
             {/* Compact row: Title text input + Accent color picker */}
@@ -691,6 +793,7 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
                 <span className="text-neutral-500">Return complete &lt;svg&gt; string</span>
               </div>
               <textarea
+                ref={codeEditorRef}
                 value={codeDraft}
                 onChange={(e) => {
                   setCodeDraft(e.target.value);
@@ -1141,112 +1244,111 @@ export const RemotionPanel: React.FC<RemotionPanelProps> = ({
             </div>
           </div>
         </div>
+      ) : viewMode === 'templates' ? (
+        /* ========================================================
+           2. TEMPLATE PICKER GRID: ONLY 13 BUILT-IN TEMPLATES
+           ======================================================== */
+        <div className="flex-1 flex flex-col min-h-0 bg-neutral-950/40 p-4 sm:p-6 overflow-y-auto space-y-5">
+          <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleBackToCode}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition cursor-pointer shadow-sm"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Code</span>
+              </button>
+
+              <div className="h-5 w-px bg-neutral-800 hidden sm:block" />
+
+              <div className="flex items-center gap-2">
+                <LayoutTemplate className="w-4 h-4 text-indigo-400" />
+                <h2 className="text-xs sm:text-sm font-bold text-neutral-100 uppercase tracking-wider">
+                  SELECT REMOTION TEMPLATE (13 AVAILABLE)
+                </h2>
+              </div>
+            </div>
+
+            <span className="text-[11px] text-neutral-400 hidden md:inline">
+              Choose from 13 built-in motion graphic templates
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {REMOTION_TEMPLATES.map((tpl) => (
+              <button
+                key={tpl.id}
+                type="button"
+                onClick={() => handleSelectTemplate(tpl)}
+                className="text-left p-4 rounded-xl border border-neutral-800 bg-neutral-900/60 hover:bg-neutral-800/60 hover:border-indigo-500/60 transition cursor-pointer flex flex-col justify-between group shadow-sm hover:shadow-md hover:shadow-indigo-500/5"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <h3 className="text-sm font-bold text-white group-hover:text-indigo-300 transition">
+                      {tpl.name}
+                    </h3>
+                    <div
+                      className="w-4 h-4 rounded-full border border-neutral-700 shrink-0 mt-0.5"
+                      style={{ backgroundColor: tpl.defaultAccent }}
+                      title="Template primary color"
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-400 line-clamp-2">{tpl.tagline}</p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-neutral-800/80">
+                  <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1.5">
+                    Animated Scene Sections:
+                  </span>
+                  <ul className="text-[11px] text-neutral-300 space-y-1 list-disc list-inside">
+                    {tpl.scenes.slice(0, 4).map((scene, idx) => (
+                      <li key={idx} className="leading-tight truncate">
+                        {scene}
+                      </li>
+                    ))}
+                    {tpl.scenes.length > 4 && (
+                      <li className="text-[10px] text-neutral-500 list-none pt-0.5">
+                        +{tpl.scenes.length - 4} more animated sections
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
       ) : (
         /* ========================================================
-           STANDARD VIEW: 14-CARD PICKER + CUSTOMIZATION + PREVIEW
+           3. NORMAL TEMPLATE MODE (CUSTOMIZATION + PREVIEW + RENDER)
            ======================================================== */
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 min-h-0">
           {/* Left Column: Template Selection & Controls (5 cols) */}
           <div className="lg:col-span-5 border-r border-neutral-800 flex flex-col bg-neutral-900/30 overflow-y-auto p-4 sm:p-5 space-y-5">
-            {/* Section 1: Template Picker Cards */}
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <LayoutTemplate className="w-4 h-4 text-indigo-400" />
-                <h2 className="text-xs font-bold text-neutral-200 uppercase tracking-wider">
-                  SELECT REMOTION TEMPLATE (14 AVAILABLE)
-                </h2>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3">
-                {REMOTION_TEMPLATES.map((tpl) => {
-                  const isSelected = tpl.id === selectedTemplateId;
-                  return (
-                    <button
-                      key={tpl.id}
-                      type="button"
-                      onClick={() => handleSelectTemplate(tpl)}
-                      className={`text-left p-4 rounded-xl border transition cursor-pointer relative ${
-                        isSelected
-                          ? 'bg-neutral-800/90 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
-                          : 'bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-800/40'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                            {tpl.name}
-                            {isSelected && (
-                              <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                            )}
-                          </h3>
-                          <p className="text-xs text-neutral-400 mt-0.5">{tpl.tagline}</p>
-                        </div>
-                        <div
-                          className="w-4 h-4 rounded-full border border-neutral-700 shrink-0 mt-0.5"
-                          style={{ backgroundColor: tpl.defaultAccent }}
-                          title="Template primary color"
-                        />
-                      </div>
-
-                      {/* Animated scenes list */}
-                      <div className="mt-3 pt-2.5 border-t border-neutral-800/80">
-                        <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1.5">
-                          Animated Scene Sections:
-                        </span>
-                        <ul className="text-[11px] text-neutral-300 space-y-1 list-disc list-inside">
-                          {tpl.scenes.map((scene, idx) => (
-                            <li key={idx} className="leading-tight">
-                              {scene}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {/* 14th Card: Custom Code */}
+            {/* Top Navigation Row: Back to Code + All Templates buttons */}
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-800">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={handleSelectCustomCode}
-                  className={`text-left p-4 rounded-xl border transition cursor-pointer relative ${
-                    selectedTemplateId === 'custom-code'
-                      ? 'bg-neutral-800/90 border-indigo-500 shadow-lg shadow-indigo-500/10 ring-1 ring-indigo-500/50'
-                      : 'bg-neutral-900/60 border-neutral-800 hover:border-neutral-700 hover:bg-neutral-800/40'
-                  }`}
+                  onClick={handleBackToCode}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-300 hover:text-white bg-indigo-900/40 hover:bg-indigo-900/70 border border-indigo-700/60 transition cursor-pointer"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                        <Code className="w-4 h-4 text-indigo-400" />
-                        Custom Code
-                        {selectedTemplateId === 'custom-code' && (
-                          <span className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-                        )}
-                      </h3>
-                      <p className="text-xs text-neutral-400 mt-0.5">
-                        Programmatic SVG frame generator with full JS control
-                      </p>
-                    </div>
-                    <div
-                      className="w-5 h-5 rounded-md border border-neutral-700 shrink-0 mt-0.5 flex items-center justify-center bg-indigo-600/30 text-indigo-300 font-mono text-[11px] font-bold"
-                      title="Custom Code </>"
-                    >
-                      &lt;/&gt;
-                    </div>
-                  </div>
-
-                  <div className="mt-3 pt-2.5 border-t border-neutral-800/80">
-                    <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider block mb-1.5">
-                      Animated Scene Sections:
-                    </span>
-                    <ul className="text-[11px] text-neutral-300 space-y-1 list-disc list-inside">
-                      <li className="leading-tight">Custom JS code returning complete &lt;svg&gt; per frame</li>
-                      <li className="leading-tight">Access frame, totalFrames, W, H, &amp; ctx runtime</li>
-                      <li className="leading-tight">Built-in 14-component HUD &amp; motion overlay library</li>
-                    </ul>
-                  </div>
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Back to Code</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenTemplatesGrid}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-300 hover:text-white bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition cursor-pointer"
+                >
+                  <Package className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>All Templates</span>
+                </button>
+              </div>
+
+              <div className="text-[11px] font-mono text-neutral-400 truncate max-w-[160px]" title={selectedTemplate.name}>
+                {selectedTemplate.name}
               </div>
             </div>
 
