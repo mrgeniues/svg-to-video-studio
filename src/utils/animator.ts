@@ -11,7 +11,10 @@ export type AnimationStyle =
   | 'rotate-in'
   | 'slide-up'
   | 'pulse-loop'
-  | 'spin-continuous';
+  | 'spin-continuous'
+  | 'stagger-pulse'
+  | 'slide-block'
+  | 'progress-follow';
 
 export interface SvgValidationResult {
   valid: boolean;
@@ -273,6 +276,18 @@ export function isBackgroundElement(el: Element, vbW: number, vbH: number): bool
 }
 
 /**
+ * Checks if an element is contained within a <defs> block
+ */
+export function isInsideDefs(el: Element): boolean {
+  let curr: Element | null = el;
+  while (curr) {
+    if (curr.nodeName.toLowerCase() === 'defs') return true;
+    curr = curr.parentElement;
+  }
+  return false;
+}
+
+/**
  * Applies programmatic animation at normalized progress t (0.0 to 1.0)
  * Returns a serialized SVG string ready for rendering
  */
@@ -386,6 +401,34 @@ export function renderAnimatedSvgString(
       break;
     }
 
+    case 'stagger-pulse': {
+      // Deterministic staggered opacity pulse across foreground shapes:
+      // Each foreground shape (path, line, polyline, polygon, circle, rect, ellipse, text
+      // in document order, skipping anything inside <defs> and skipping the full-frame background rect)
+      // receives opacity = 0.55 + 0.45 * cos(2 * PI * pulses * t - phase_i)
+      // where phase_i = (i / N) * 2 * PI
+      // At t=0, phase_0 = 0 => opacity = 0.55 + 0.45 * 1.0 = 1.0 (first shape fully visible)
+      const count = typeof pulseCount === 'number' && pulseCount > 0 ? pulseCount : 4;
+      const allShapes = root.querySelectorAll('path, line, polyline, polygon, circle, rect, ellipse, text');
+      const foregroundShapes: Element[] = [];
+      allShapes.forEach(el => {
+        if (isInsideDefs(el)) return;
+        if (isBackgroundElement(el, vbW, vbH)) return;
+        foregroundShapes.push(el);
+      });
+
+      const N = foregroundShapes.length;
+      if (N > 0) {
+        foregroundShapes.forEach((el, i) => {
+          const phase_i = (i / N) * 2 * Math.PI;
+          const opacity = 0.55 + 0.45 * Math.cos(2 * Math.PI * count * progress - phase_i);
+          (el as HTMLElement).style.opacity = String(opacity);
+          el.setAttribute('opacity', String(opacity));
+        });
+      }
+      break;
+    }
+
     case 'progress': {
       // Deterministic linear progress: p(t) = t / duration (0.0 to 1.0)
       // ID CONVENTION:
@@ -416,6 +459,193 @@ export function renderAnimatedSvgString(
       const textEl = doc.getElementById('progress-text') || root.querySelector('#progress-text');
       if (textEl) {
         textEl.textContent = `${Math.round(progress * 100)}%`;
+      }
+      break;
+    }
+
+    case 'progress-follow': {
+      // Grows #progress-fill width 0 to 100% and updates #progress-text to 0% to 100%
+      // #progress-text moves horizontally so it stays just to the right of the fill edge (edge + 16px, left-aligned).
+      // When text would run past the right edge of the viewBox, place it just inside the fill edge (edge - 16px, right-aligned).
+      // Vertical position stays exactly as authored in SVG.
+      const fillEl = doc.getElementById('progress-fill') || root.querySelector('#progress-fill');
+      let fillX = 0;
+      let currentW = 0;
+
+      if (fillEl && !isBackgroundElement(fillEl, vbW, vbH)) {
+        let originalWidth = 0;
+        const wAttr = fillEl.getAttribute('data-original-width') || fillEl.getAttribute('width');
+        if (wAttr) {
+          originalWidth = parseFloat(wAttr) || 0;
+        } else if ((fillEl as HTMLElement).style?.width) {
+          originalWidth = parseFloat((fillEl as HTMLElement).style.width) || 0;
+        }
+
+        if (!fillEl.hasAttribute('data-original-width') && originalWidth > 0) {
+          fillEl.setAttribute('data-original-width', String(originalWidth));
+        }
+
+        const xAttr = fillEl.getAttribute('data-original-x') || fillEl.getAttribute('x');
+        if (xAttr) {
+          fillX = parseFloat(xAttr) || 0;
+        } else if ((fillEl as HTMLElement).style?.left) {
+          fillX = parseFloat((fillEl as HTMLElement).style.left) || 0;
+        }
+        if (!fillEl.hasAttribute('data-original-x')) {
+          fillEl.setAttribute('data-original-x', String(fillX));
+        }
+
+        currentW = Math.max(0, originalWidth * progress);
+        fillEl.setAttribute('width', String(currentW));
+        if ((fillEl as HTMLElement).style?.width) {
+          (fillEl as HTMLElement).style.width = `${currentW}px`;
+        }
+      } else {
+        fillX = vbX;
+        currentW = vbW * progress;
+      }
+
+      const textEl = doc.getElementById('progress-text') || root.querySelector('#progress-text');
+      if (textEl) {
+        const textContent = `${Math.round(progress * 100)}%`;
+        textEl.textContent = textContent;
+
+        const edge = fillX + currentW;
+
+        // Determine font size & estimated text width to detect if running past viewBox right edge
+        const fontAttr = textEl.getAttribute('font-size') ||
+          textEl.closest('[font-size]')?.getAttribute('font-size') ||
+          (textEl as HTMLElement).style?.fontSize || '16';
+        const fontSize = parseFloat(fontAttr) || 16;
+        const letterSpacing = parseFloat(textEl.getAttribute('letter-spacing') || '0') || 0;
+
+        let textWidth = 0;
+        try {
+          if ((textEl as any).getComputedTextLength) {
+            textWidth = (textEl as any).getComputedTextLength();
+          }
+        } catch {}
+
+        if (!textWidth) {
+          try {
+            if (typeof document !== 'undefined') {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                const fontFamily = textEl.getAttribute('font-family') || (textEl as HTMLElement).style?.fontFamily || 'Arial, sans-serif';
+                ctx.font = `${fontSize}px ${fontFamily}`;
+                textWidth = ctx.measureText(textContent).width;
+              }
+            }
+          } catch {}
+        }
+
+        if (!textWidth || textWidth <= 0) {
+          textWidth = textContent.length * fontSize * 0.6 + letterSpacing * textContent.length;
+        }
+
+        const vbRight = vbX + vbW;
+        const wouldRunPast = (edge + 16 + textWidth) > vbRight;
+
+        if (wouldRunPast) {
+          // Inside fill edge, right-aligned
+          const posX = edge - 16;
+          textEl.setAttribute('x', String(posX));
+          textEl.setAttribute('text-anchor', 'end');
+          (textEl as HTMLElement).style.textAnchor = 'end';
+        } else {
+          // Right of fill edge, left-aligned
+          const posX = edge + 16;
+          textEl.setAttribute('x', String(posX));
+          textEl.setAttribute('text-anchor', 'start');
+          (textEl as HTMLElement).style.textAnchor = 'start';
+        }
+        // y is not modified, so vertical position stays exactly as authored
+      }
+      break;
+    }
+
+    case 'slide-block': {
+      // #slide-block slides horizontally inside #slide-track (or full viewBox width if no track)
+      // 2 full round trips (left-right-left) over duration: tri in [0, 1]
+      // x = trackX + tri * (trackWidth - blockWidth), clamped
+      const trackEl = doc.getElementById('slide-track') || root.querySelector('#slide-track');
+      let trackX = vbX;
+      let trackWidth = vbW;
+
+      if (trackEl) {
+        if (trackEl.hasAttribute('x') && trackEl.hasAttribute('width')) {
+          trackX = parseFloat(trackEl.getAttribute('x') || '0') || 0;
+          trackWidth = parseFloat(trackEl.getAttribute('width') || '0') || 0;
+        } else if (trackEl.hasAttribute('x1') && trackEl.hasAttribute('x2')) {
+          const x1 = parseFloat(trackEl.getAttribute('x1') || '0') || 0;
+          const x2 = parseFloat(trackEl.getAttribute('x2') || '0') || 0;
+          trackX = Math.min(x1, x2);
+          trackWidth = Math.abs(x2 - x1);
+        } else if ((trackEl as HTMLElement).style?.width) {
+          trackWidth = parseFloat((trackEl as HTMLElement).style.width) || vbW;
+          if ((trackEl as HTMLElement).style?.left) {
+            trackX = parseFloat((trackEl as HTMLElement).style.left) || 0;
+          }
+        }
+        if (trackWidth <= 0) {
+          trackX = vbX;
+          trackWidth = vbW;
+        }
+      }
+
+      const blockEl = doc.getElementById('slide-block') || root.querySelector('#slide-block');
+      if (blockEl) {
+        // Keep block's original x as the left edge reference
+        let origX = 0;
+        const origXAttr = blockEl.getAttribute('data-original-x') || blockEl.getAttribute('x');
+        if (origXAttr) {
+          origX = parseFloat(origXAttr) || 0;
+        } else if (blockEl.getAttribute('cx')) {
+          origX = parseFloat(blockEl.getAttribute('cx') || '0') || 0;
+        }
+        if (!blockEl.hasAttribute('data-original-x')) {
+          blockEl.setAttribute('data-original-x', String(origX));
+        }
+
+        // Support rect blocks (x/width)
+        let blockWidth = 0;
+        const wAttr = blockEl.getAttribute('data-original-width') || blockEl.getAttribute('width');
+        if (wAttr) {
+          blockWidth = parseFloat(wAttr) || 0;
+        } else if ((blockEl as HTMLElement).style?.width) {
+          blockWidth = parseFloat((blockEl as HTMLElement).style.width) || 0;
+        } else if (blockEl.getAttribute('r')) {
+          blockWidth = (parseFloat(blockEl.getAttribute('r') || '0') || 0) * 2;
+        }
+        if (!blockEl.hasAttribute('data-original-width') && blockWidth > 0) {
+          blockEl.setAttribute('data-original-width', String(blockWidth));
+        }
+
+        // 2 full round trips (left-right-left) over progress 0..1:
+        // Trip 1 in [0, 0.5], Trip 2 in [0.5, 1.0]
+        const cycle = (progress * 2) % 1;
+        const tri = progress >= 1 ? 0 : 1 - Math.abs(2 * cycle - 1);
+        const clampedTri = Math.max(0, Math.min(1, tri));
+
+        const maxTravel = Math.max(0, trackWidth - blockWidth);
+        const minX = trackX;
+        const maxX = trackX + maxTravel;
+        let targetX = trackX + clampedTri * maxTravel;
+        targetX = Math.max(minX, Math.min(maxX, targetX));
+
+        const tag = blockEl.nodeName.toLowerCase();
+        if (tag === 'rect') {
+          blockEl.setAttribute('x', String(targetX));
+          if ((blockEl as HTMLElement).style?.left) (blockEl as HTMLElement).style.left = `${targetX}px`;
+          if ((blockEl as HTMLElement).style?.x) (blockEl as HTMLElement).style.x = `${targetX}px`;
+        } else if (tag === 'circle') {
+          const r = parseFloat(blockEl.getAttribute('r') || '0') || 0;
+          blockEl.setAttribute('cx', String(targetX + r));
+        } else {
+          const dx = targetX - origX;
+          blockEl.setAttribute('transform', `translate(${dx} 0)`);
+        }
       }
       break;
     }

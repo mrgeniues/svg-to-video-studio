@@ -108,7 +108,10 @@ export function generateStandaloneHtml(): string {
               <select id="animStyleSelect" class="flex-1 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-indigo-500">
                 <option value="draw-on">Draw-on (strokes draw themselves)</option>
                 <option value="pulse">Pulse</option>
+                <option value="stagger-pulse">Stagger Pulse</option>
                 <option value="progress">Progress</option>
+                <option value="progress-follow">Progress Follow</option>
+                <option value="slide-block">Slide Block</option>
                 <option value="fade-in">Fade in</option>
                 <option value="zoom-in" selected>Zoom in</option>
                 <option value="rotate-in">Rotate in</option>
@@ -445,6 +448,172 @@ export function generateStandaloneHtml(): string {
         if (textEl) {
           textEl.textContent = Math.round(t * 100) + '%';
         }
+      } else if (style === 'stagger-pulse') {
+        const count = pulseCount || 4;
+        const allShapes = root.querySelectorAll('path, line, polyline, polygon, circle, rect, ellipse, text');
+        const foregroundShapes = [];
+        allShapes.forEach(el => {
+          let curr = el;
+          let insideDefs = false;
+          while (curr) {
+            if (curr.nodeName.toLowerCase() === 'defs') { insideDefs = true; break; }
+            curr = curr.parentElement;
+          }
+          if (insideDefs) return;
+          if (isBgRect(el, w, h)) return;
+          foregroundShapes.push(el);
+        });
+        const N = foregroundShapes.length;
+        if (N > 0) {
+          foregroundShapes.forEach((el, i) => {
+            const phase_i = (i / N) * 2 * Math.PI;
+            const opacity = 0.55 + 0.45 * Math.cos(2 * Math.PI * count * t - phase_i);
+            el.style.opacity = String(opacity);
+            el.setAttribute('opacity', String(opacity));
+          });
+        }
+      } else if (style === 'progress-follow') {
+        const fillEl = doc.getElementById('progress-fill') || root.querySelector('#progress-fill');
+        let fillX = 0;
+        let currentW = 0;
+        if (fillEl && !isBgRect(fillEl, w, h)) {
+          let originalWidth = 0;
+          const wAttr = fillEl.getAttribute('data-original-width') || fillEl.getAttribute('width');
+          if (wAttr) originalWidth = parseFloat(wAttr) || 0;
+          else if (fillEl.style && fillEl.style.width) originalWidth = parseFloat(fillEl.style.width) || 0;
+
+          if (!fillEl.hasAttribute('data-original-width') && originalWidth > 0) {
+            fillEl.setAttribute('data-original-width', String(originalWidth));
+          }
+
+          const xAttr = fillEl.getAttribute('data-original-x') || fillEl.getAttribute('x');
+          if (xAttr) fillX = parseFloat(xAttr) || 0;
+          else if (fillEl.style && fillEl.style.left) fillX = parseFloat(fillEl.style.left) || 0;
+
+          if (!fillEl.hasAttribute('data-original-x')) {
+            fillEl.setAttribute('data-original-x', String(fillX));
+          }
+
+          currentW = Math.max(0, originalWidth * t);
+          fillEl.setAttribute('width', String(currentW));
+          if (fillEl.style && fillEl.style.width) {
+            fillEl.style.width = currentW + 'px';
+          }
+        } else {
+          fillX = vbX;
+          currentW = w * t;
+        }
+
+        const textEl = doc.getElementById('progress-text') || root.querySelector('#progress-text');
+        if (textEl) {
+          const textContent = Math.round(t * 100) + '%';
+          textEl.textContent = textContent;
+          const edge = fillX + currentW;
+
+          const fontAttr = textEl.getAttribute('font-size') || (textEl.style && textEl.style.fontSize) || '16';
+          const fontSize = parseFloat(fontAttr) || 16;
+          const letterSpacing = parseFloat(textEl.getAttribute('letter-spacing') || '0') || 0;
+          let textWidth = 0;
+          try {
+            if (textEl.getComputedTextLength) textWidth = textEl.getComputedTextLength();
+          } catch (e) {}
+          if (!textWidth) {
+            try {
+              const canvas = document.createElement('canvas');
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                const fontFamily = textEl.getAttribute('font-family') || (textEl.style && textEl.style.fontFamily) || 'Arial, sans-serif';
+                ctx.font = fontSize + 'px ' + fontFamily;
+                textWidth = ctx.measureText(textContent).width;
+              }
+            } catch (e) {}
+          }
+          if (!textWidth || textWidth <= 0) {
+            textWidth = textContent.length * fontSize * 0.6 + letterSpacing * textContent.length;
+          }
+
+          const vbRight = vbX + w;
+          const wouldRunPast = (edge + 16 + textWidth) > vbRight;
+          if (wouldRunPast) {
+            textEl.setAttribute('x', String(edge - 16));
+            textEl.setAttribute('text-anchor', 'end');
+            if (textEl.style) textEl.style.textAnchor = 'end';
+          } else {
+            textEl.setAttribute('x', String(edge + 16));
+            textEl.setAttribute('text-anchor', 'start');
+            if (textEl.style) textEl.style.textAnchor = 'start';
+          }
+        }
+      } else if (style === 'slide-block') {
+        const trackEl = doc.getElementById('slide-track') || root.querySelector('#slide-track');
+        let trackX = vbX;
+        let trackWidth = w;
+        if (trackEl) {
+          if (trackEl.hasAttribute('x') && trackEl.hasAttribute('width')) {
+            trackX = parseFloat(trackEl.getAttribute('x') || '0') || 0;
+            trackWidth = parseFloat(trackEl.getAttribute('width') || '0') || 0;
+          } else if (trackEl.hasAttribute('x1') && trackEl.hasAttribute('x2')) {
+            const x1 = parseFloat(trackEl.getAttribute('x1') || '0') || 0;
+            const x2 = parseFloat(trackEl.getAttribute('x2') || '0') || 0;
+            trackX = Math.min(x1, x2);
+            trackWidth = Math.abs(x2 - x1);
+          } else if (trackEl.style && trackEl.style.width) {
+            trackWidth = parseFloat(trackEl.style.width) || w;
+            if (trackEl.style.left) trackX = parseFloat(trackEl.style.left) || 0;
+          }
+          if (trackWidth <= 0) {
+            trackX = vbX;
+            trackWidth = w;
+          }
+        }
+
+        const blockEl = doc.getElementById('slide-block') || root.querySelector('#slide-block');
+        if (blockEl) {
+          let origX = 0;
+          const origXAttr = blockEl.getAttribute('data-original-x') || blockEl.getAttribute('x');
+          if (origXAttr) {
+            origX = parseFloat(origXAttr) || 0;
+          } else if (blockEl.getAttribute('cx')) {
+            origX = parseFloat(blockEl.getAttribute('cx') || '0') || 0;
+          }
+          if (!blockEl.hasAttribute('data-original-x')) {
+            blockEl.setAttribute('data-original-x', String(origX));
+          }
+
+          let blockWidth = 0;
+          const wAttr = blockEl.getAttribute('data-original-width') || blockEl.getAttribute('width');
+          if (wAttr) blockWidth = parseFloat(wAttr) || 0;
+          else if (blockEl.style && blockEl.style.width) blockWidth = parseFloat(blockEl.style.width) || 0;
+          else if (blockEl.getAttribute('r')) blockWidth = (parseFloat(blockEl.getAttribute('r') || '0') || 0) * 2;
+          if (!blockEl.hasAttribute('data-original-width') && blockWidth > 0) {
+            blockEl.setAttribute('data-original-width', String(blockWidth));
+          }
+
+          const cycle = (t * 2) % 1;
+          const tri = t >= 1 ? 0 : 1 - Math.abs(2 * cycle - 1);
+          const clampedTri = Math.max(0, Math.min(1, tri));
+
+          const maxTravel = Math.max(0, trackWidth - blockWidth);
+          const minX = trackX;
+          const maxX = trackX + maxTravel;
+          let targetX = trackX + clampedTri * maxTravel;
+          targetX = Math.max(minX, Math.min(maxX, targetX));
+
+          const tag = blockEl.nodeName.toLowerCase();
+          if (tag === 'rect') {
+            blockEl.setAttribute('x', String(targetX));
+            if (blockEl.style) {
+              if (blockEl.style.left) blockEl.style.left = targetX + 'px';
+              if (blockEl.style.x) blockEl.style.x = targetX + 'px';
+            }
+          } else if (tag === 'circle') {
+            const r = parseFloat(blockEl.getAttribute('r') || '0') || 0;
+            blockEl.setAttribute('cx', String(targetX + r));
+          } else {
+            const dx = targetX - origX;
+            blockEl.setAttribute('transform', 'translate(' + dx + ' 0)');
+          }
+        }
       } else if (style === 'draw-on') {
         const geoms = root.querySelectorAll('path, line, polyline, polygon, circle, rect, ellipse');
         geoms.forEach(el => {
@@ -751,7 +920,7 @@ export function generateStandaloneHtml(): string {
       } else {
         rotationsWrapper.classList.add('hidden');
       }
-      if (animStyleSelect.value === 'pulse') {
+      if (animStyleSelect.value === 'pulse' || animStyleSelect.value === 'stagger-pulse') {
         pulsesWrapper.classList.remove('hidden');
       } else {
         pulsesWrapper.classList.add('hidden');

@@ -988,7 +988,7 @@ export default function App() {
                       {spinCount} {spinCount === 1 ? 'rotation' : 'rotations'}
                     </span>
                   )}
-                  {animationStyle === 'pulse' && (
+                  {(animationStyle === 'pulse' || animationStyle === 'stagger-pulse') && (
                     <span className="text-xs text-neutral-400 font-mono">
                       {pulseCount} {pulseCount === 1 ? 'pulse' : 'pulses'}
                     </span>
@@ -1006,7 +1006,10 @@ export default function App() {
                   >
                     <option value="draw-on">Draw-on (strokes draw themselves)</option>
                     <option value="pulse">Pulse</option>
+                    <option value="stagger-pulse">Stagger Pulse</option>
                     <option value="progress">Progress</option>
+                    <option value="progress-follow">Progress Follow</option>
+                    <option value="slide-block">Slide Block</option>
                     <option value="fade-in">Fade in</option>
                     <option value="zoom-in">Zoom in</option>
                     <option value="rotate-in">Rotate in</option>
@@ -1015,8 +1018,8 @@ export default function App() {
                     <option value="spin-continuous">Spin (continuous)</option>
                   </select>
 
-                  {/* Pulses number input: visible ONLY when 'Pulse' is selected */}
-                  {animationStyle === 'pulse' && (
+                  {/* Pulses number input: visible when 'Pulse' or 'Stagger Pulse' is selected */}
+                  {(animationStyle === 'pulse' || animationStyle === 'stagger-pulse') && (
                     <div className="flex items-center gap-1.5 shrink-0 bg-neutral-900 border border-neutral-800 rounded-lg px-2.5 py-1.5">
                       <label htmlFor="pulsesInput" className="text-[11px] text-neutral-400 whitespace-nowrap">
                         Pulses:
@@ -1066,7 +1069,10 @@ export default function App() {
                 <p className="text-[11px] text-neutral-500 mt-1">
                   {animationStyle === 'draw-on' && 'Animates strokeDashoffset on all vector paths and lines.'}
                   {animationStyle === 'pulse' && `Continuous opacity pulse (${pulseCount} pulse${pulseCount > 1 ? 's' : ''}), starts fully visible (opacity 1.0) on frame 0.`}
+                  {animationStyle === 'stagger-pulse' && `Sequenced opacity pulse across shapes (${pulseCount} pulse${pulseCount > 1 ? 's' : ''}), first shape fully visible on frame 0.`}
                   {animationStyle === 'progress' && 'Fills #progress-fill width 0→100% and live-updates #progress-text counter.'}
+                  {animationStyle === 'progress-follow' && 'Fills #progress-fill width 0→100% and follows edge with #progress-text.'}
+                  {animationStyle === 'slide-block' && 'Slides #slide-block horizontally inside #slide-track in a ping-pong loop.'}
                   {animationStyle === 'fade-in' && 'Smooth cubic opacity transition from 0 to 100%.'}
                   {animationStyle === 'zoom-in' && 'Scales from 20% to 100% centered with cubic ease.'}
                   {animationStyle === 'rotate-in' && 'Rotates 180° into place while expanding.'}
@@ -1545,7 +1551,16 @@ export default function App() {
                     <span className="font-semibold text-white">Pulse:</span> Soft blink — fully visible on the very first frame (great for file thumbnails), then gently pulses. "Pulses" (1–10) = pulses per video. Best for loading indicators.
                   </li>
                   <li>
+                    <span className="font-semibold text-white">Stagger Pulse:</span> Sequenced opacity blink across each foreground shape one after another. At t=0 the first shape is fully visible. Reuses the Pulses setting.
+                  </li>
+                  <li>
                     <span className="font-semibold text-white">Progress:</span> Loading-bar mode — the bar fills 0→100% with a live percentage counter. Your SVG needs id="progress-fill" on the fill rect and id="progress-text" on the % label. Best for progress/download bars.
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Progress Follow:</span> Progress bar where the #progress-text counter moves along with the fill edge (+16px, or -16px inside when near the right edge).
+                  </li>
+                  <li>
+                    <span className="font-semibold text-white">Slide Block:</span> Horizontal slider animation — the #slide-block rect ping-pongs inside #slide-track (or full viewBox width) for 2 full round trips.
                   </li>
                 </ul>
               </div>
